@@ -1410,6 +1410,8 @@ export async function runEmbeddedAttempt(
   await fs.mkdir(effectiveWorkspace, { recursive: true });
 
   let restoreSkillEnv: (() => void) | undefined;
+  // Track if deferred cleanup hook was successfully returned to caller
+  let deferredHookHandedOff = false;
   process.chdir(effectiveWorkspace);
   try {
     const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
@@ -2816,9 +2818,6 @@ export async function runEmbeddedAttempt(
         }
         params.abortSignal?.removeEventListener?.("abort", onAbort);
       }
-
-      // Track if deferred cleanup hook was successfully returned to caller
-      let deferredHookHandedOff = false;
 
       const lastAssistant = messagesSnapshot
         .slice()
