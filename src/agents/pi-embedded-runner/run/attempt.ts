@@ -1410,6 +1410,8 @@ export async function runEmbeddedAttempt(
   await fs.mkdir(effectiveWorkspace, { recursive: true });
 
   let restoreSkillEnv: (() => void) | undefined;
+  // Track if deferred cleanup hook was successfully returned to caller
+  let deferredHookHandedOff = false;
   process.chdir(effectiveWorkspace);
   try {
     const { shouldLoadSkillEntries, skillEntries } = resolveEmbeddedRunSkillEntries({
@@ -2802,7 +2804,18 @@ export async function runEmbeddedAttempt(
             `CRITICAL: unsubscribe failed, possible resource leak: runId=${params.runId} ${String(err)}`,
           );
         }
-        clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
+        // If deferActiveRunCleanup is true, we defer cleanup to caller via return value.
+        // But if the function throws before returning, we must still cleanup to avoid leak.
+        // Track whether cleanup was successfully handed off via return value.
+        if (params.deferActiveRunCleanup) {
+          // Caller will handle cleanup via clearDeferredActiveRun in return value
+          // But if we exit via exception, still do cleanup
+          if (!deferredHookHandedOff) {
+            clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
+          }
+        } else {
+          clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
+        }
         params.abortSignal?.removeEventListener?.("abort", onAbort);
       }
 
@@ -2872,6 +2885,13 @@ export async function runEmbeddedAttempt(
         // Client tool call detected (OpenResponses hosted tools)
         clientToolCall: clientToolCallDetected ?? undefined,
         yieldDetected: yieldDetected || undefined,
+        // Provide cleanup callback when deferred, and mark as handed off
+        clearDeferredActiveRun: params.deferActiveRunCleanup
+          ? (() => {
+              deferredHookHandedOff = true;
+              return () => clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
+            })()
+          : undefined,
       };
     } finally {
       // Always tear down the session (and release the lock) before we leave this attempt.
