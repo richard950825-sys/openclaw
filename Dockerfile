@@ -99,14 +99,6 @@ FROM build AS runtime-assets
 RUN CI=true pnpm prune --prod && \
     find dist -type f \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) -delete
 
-# Test stage: keep dev dependencies for running tests
-FROM build AS test-runner
-# No prune, keep all dependencies including devDependencies
-WORKDIR /app
-
-# Default command runs tests
-CMD ["pnpm", "test:fast", "--run"]
-
 # ── Runtime base images ─────────────────────────────────────────
 FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS base-default
 ARG OPENCLAW_NODE_BOOKWORM_DIGEST
@@ -153,6 +145,10 @@ COPY --from=runtime-assets --chown=node:node /app/openclaw.mjs .
 COPY --from=runtime-assets --chown=node:node /app/extensions ./extensions
 COPY --from=runtime-assets --chown=node:node /app/skills ./skills
 COPY --from=runtime-assets --chown=node:node /app/docs ./docs
+
+# In npm-installed Docker images, prefer the copied source extension tree for
+# bundled discovery so package metadata that points at source entries stays valid.
+ENV OPENCLAW_BUNDLED_PLUGINS_DIR=/app/extensions
 
 # Keep pnpm available in the runtime image for container-local workflows.
 # Use a shared Corepack home so the non-root `node` user does not need a
