@@ -101,7 +101,7 @@ bash pty:true workdir:~/project command:"codex exec --full-auto 'Build a snake g
 bash pty:true workdir:~/project command:"codex exec --full-auto 'Build a dark mode toggle'"
 
 # Longer work: spawn and yield so completion comes back here
-sessions_spawn(task="In ~/project, use Codex to refactor the auth module", runtime:"acp", agentId:"codex", cwd:"~/project", mode:"run", label:"auth-refactor")
+sessions_spawn(task="In /home/user/project, use Codex to refactor the auth module", runtime:"acp", agentId:"codex", cwd:"/home/user/project", mode:"run", label:"auth-refactor", streamTo:"parent")
 sessions_yield(message="Waiting for Codex to finish the auth refactor...")
 ```
 
@@ -130,8 +130,8 @@ bash pty:true workdir:/tmp/pr-130-review command:"codex review --base main"
 git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'
 
 # Deploy the army - one spawned run per PR
-sessions_spawn(task="In ~/project, review PR #86 using git diff origin/main...origin/pr/86", runtime:"acp", agentId:"codex", cwd:"~/project", mode:"run", label:"pr-86-review")
-sessions_spawn(task="In ~/project, review PR #87 using git diff origin/main...origin/pr/87", runtime:"acp", agentId:"codex", cwd:"~/project", mode:"run", label:"pr-87-review")
+sessions_spawn(task="In /home/user/project, review PR #86 using git diff origin/main...origin/pr/86", runtime:"acp", agentId:"codex", cwd:"/home/user/project", mode:"run", label:"pr-86-review", streamTo:"parent")
+sessions_spawn(task="In /home/user/project, review PR #87 using git diff origin/main...origin/pr/87", runtime:"acp", agentId:"codex", cwd:"/home/user/project", mode:"run", label:"pr-87-review", streamTo:"parent")
 
 # Yield until one finishes or asks for input
 sessions_yield(message="Waiting for the PR reviews to finish...")
@@ -149,7 +149,7 @@ gh pr comment <PR#> --body "<review content>"
 bash workdir:~/project command:"claude --permission-mode bypassPermissions --print 'Your task'"
 
 # Longer work
-sessions_spawn(task="In ~/project, use Claude Code to handle the requested coding task", runtime:"acp", agentId:"claude", cwd:"~/project", mode:"run", label:"claude-task")
+sessions_spawn(task="In /home/user/project, use Claude Code to handle the requested coding task", runtime:"acp", agentId:"claude", cwd:"/home/user/project", mode:"run", label:"claude-task", streamTo:"parent")
 sessions_yield(message="Waiting for Claude Code to finish...")
 ```
 
@@ -247,7 +247,7 @@ This prevents the user from seeing only "Agent failed before reply" and having n
 
 ```bash
 # ✅ Recommended: sessions_spawn + sessions_yield
-sessions_spawn(task="In ~/project, use Codex to build a REST API for todos", runtime:"acp", agentId:"codex", cwd:"~/project", mode:"run", label:"todos-api")
+sessions_spawn(task="In /home/user/project, use Codex to build a REST API for todos", runtime:"acp", agentId:"codex", cwd:"/home/user/project", mode:"run", label:"todos-api", streamTo:"parent")
 sessions_yield(message="Waiting for Codex to finish the todos API...")
 
 # Result auto-announces back to the requester session
