@@ -1396,6 +1396,29 @@ export async function runEmbeddedAttempt(
   const resolvedWorkspace = resolveUserPath(params.workspaceDir);
   const prevCwd = process.cwd();
   const runAbortController = new AbortController();
+
+  // ── Expose live handle to outer wrapper BEFORE any await ──────────────────
+  // This is synchronous: the outer wrapper can read attemptRef.current immediately
+  // after the await runEmbeddedAttempt(...) returns, and can forward
+  // queueMessage/isStreaming/isCompacting/abort to the in-flight attempt.
+  // The attempt-local queueHandle and abortRun are written here, before any
+  // await, so the outer wrapper is never a no-op during first-attempt execution.
+  if (params.attemptRef) {
+    const queueHandlePlaceholder: EmbeddedPiQueueHandle = {
+      queueMessage: async (_text: string) => {
+        // Will be overwritten with real queueHandle below after activeSession is set up
+      },
+      isStreaming: () => false,
+      isCompacting: () => false,
+      abort: () => runAbortController.abort(),
+    };
+    params.attemptRef.current = {
+      queueHandle: queueHandlePlaceholder,
+      abortRun: (isTimeout?: boolean, reason?: unknown) => {
+        runAbortController.abort(reason ?? (isTimeout ? makeTimeoutAbortReason() : undefined));
+      },
+    };
+  }
   // Proxy bootstrap must happen before timeout tuning so the timeouts wrap the
   // active EnvHttpProxyAgent instead of being replaced by a bare proxy dispatcher.
   ensureGlobalUndiciEnvProxyDispatcher();
@@ -2319,6 +2342,12 @@ export async function runEmbeddedAttempt(
       };
       if (!params.queueHandle) {
         setActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
+      }
+      // ── Update attemptRef with real queueHandle (overwrites placeholder) ───
+      // This happens before any retry await, so from the NEXT iteration onward,
+      // the outer wrapper correctly forwards queueMessage/isStreaming/isCompacting.
+      if (params.attemptRef?.current) {
+        params.attemptRef.current.queueHandle = queueHandle;
       }
 
       let abortWarnTimer: NodeJS.Timeout | undefined;

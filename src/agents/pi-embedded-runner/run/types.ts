@@ -5,6 +5,22 @@ import type { ThinkLevel } from "../../../auto-reply/thinking.js";
 import type { SessionSystemPromptReport } from "../../../config/sessions/types.js";
 import type { ContextEngine } from "../../../context-engine/types.js";
 import type { EmbeddedPiQueueHandle } from "../runs.js";
+
+/**
+ * A mutable container passed from the outer run to each attempt.
+ * The attempt writes its live handle and abort function here SYNCHRONOUSLY
+ * (before any await), so the outer wrapper can forward queueMessage /
+ * isStreaming / isCompacting / abort to the in-flight attempt immediately,
+ * not just after the await returns.
+ */
+export type MutableAttemptRef = {
+  current?: {
+    /** The attempt's live queueHandle (queueMessage / isStreaming / isCompacting). */
+    queueHandle: EmbeddedPiQueueHandle;
+    /** The attempt's abortRun function for immediate abort forwarding. */
+    abortRun: (isTimeout?: boolean, reason?: unknown) => void;
+  };
+};
 import type { PluginHookBeforeAgentStartResult } from "../../../plugins/types.js";
 import type { MessagingToolSend } from "../../pi-embedded-messaging.js";
 import type { NormalizedUsage } from "../../usage.js";
@@ -18,6 +34,13 @@ type EmbeddedRunAttemptBase = Omit<
 export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
   /** Pluggable context engine for ingest/assemble/compact lifecycle. */
   contextEngine?: ContextEngine;
+  /**
+   * Mutable container for the outer wrapper to receive the attempt's live handle
+   * and abort function BEFORE any await. Written synchronously at the top of
+   * runEmbeddedAttempt, read after the await returns. Enables outer forwarding
+   * of queueMessage/isStreaming/isCompacting/abort to the in-flight attempt.
+   */
+  attemptRef?: MutableAttemptRef;
   /** Resolved model context window in tokens for assemble/compact budgeting. */
   contextTokenBudget?: number;
   /** Auth profile resolved for this attempt's provider/model call. */

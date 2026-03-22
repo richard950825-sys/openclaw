@@ -891,16 +891,13 @@ export async function runEmbeddedPiAgent(
       // After each retry, we swap the controller so the next iteration gets a fresh signal.
       let currentAbortController = new AbortController();
       // Tracks the current attempt's queueHandle so outer handle methods can delegate.
-      // Updated after each attempt returns with that attempt's real handle.
-      //
-      // KNOWN LIMITATION: During the FIRST attempt's in-flight execution (before the
-      // await returns), currentAttemptHandle is still undefined. Outer queueMessage
-      // and isStreaming() are no-op / false during this window. This is acceptable
-      // because the first attempt's own queueHandle is created at the start of
-      // runEmbeddedAttempt() and is live during execution (steering works internally).
-      // For all subsequent retry attempts, currentAttemptHandle is set before the
-      // next attempt starts, so forwarding works correctly from iteration N+1 onward.
+      // Updated synchronously via attemptRef after each attempt returns.
       let currentAttemptHandle: EmbeddedPiQueueHandle | undefined;
+      // Mutable container passed to the attempt. The attempt writes its live
+      // queueHandle and abortRun here SYNCHRONOUSLY (before any await), so the outer
+      // wrapper can forward queueMessage/isStreaming/isCompacting/abort to the in-flight
+      // attempt immediately — not just after the await returns.
+      const attemptRef: { current?: { queueHandle: EmbeddedPiQueueHandle; abortRun: (isTimeout?: boolean, reason?: unknown) => void } } = {};
       const queueHandle: EmbeddedPiQueueHandle = {
         queueMessage: async (text: string) => {
           // Forward to the current attempt if one is running; otherwise a no-op.
@@ -911,18 +908,26 @@ export async function runEmbeddedPiAgent(
         isStreaming: () => currentAttemptHandle?.isStreaming() ?? false,
         isCompacting: () => currentAttemptHandle?.isCompacting() ?? false,
         abort: () => {
-          // Abort whatever the current in-flight attempt is doing.
-          // If no attempt is in flight, this is a no-op.
-          currentAbortController.abort();
+          // Forward abort to the attempt's abortRun if available; otherwise abort
+          // the current controller (for the window before attemptRef is populated).
+          if (attemptRef.current?.abortRun) {
+            attemptRef.current.abortRun();
+          } else {
+            currentAbortController.abort();
+          }
         },
       };
       // Register once before the loop; the same queueHandle is reused across retries.
       setActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
 
-      // Outer abort listener: route through stable queueHandle so aborts
-      // target the current in-flight attempt's controller.
+      // Outer abort listener: route through the attempt's abortRun so aborts
+      // immediately stop the in-flight attempt.
       const outerAbortHandler = () => {
-        queueHandle.abort();
+        if (attemptRef.current?.abortRun) {
+          attemptRef.current.abortRun();
+        } else {
+          currentAbortController.abort();
+        }
       };
       if (params.abortSignal) {
         if (params.abortSignal.aborted) {
@@ -1037,6 +1042,9 @@ export async function runEmbeddedPiAgent(
             // NOTE: queueHandle is NOT passed here. The attempt always creates its own
             // local queueHandle. We retrieve it via attempt.queueHandle after the await
             // returns, so the outer wrapper can forward to the current in-flight attempt.
+            // attemptRef is passed so the attempt can write its live handle synchronously
+            // before any await, enabling outer forwarding from the first attempt onward.
+            attemptRef,
             deferActiveRunCleanup: true,
             abortSignal: currentAbortController.signal,
             shouldEmitToolResult: params.shouldEmitToolResult,
@@ -1071,7 +1079,9 @@ export async function runEmbeddedPiAgent(
           } = attempt;
 
           // Store the attempt's queueHandle so outer handle methods can delegate to it.
-          currentAttemptHandle = attempt.queueHandle;
+          // The attempt wrote this to attemptRef synchronously before any await, so it's
+          // available immediately after the await returns (even for first attempt).
+          currentAttemptHandle = attemptRef.current?.queueHandle;
 
           // Swap to a fresh abort controller for the next retry iteration.
           // This ensures each retry starts with an un-aborted signal.
