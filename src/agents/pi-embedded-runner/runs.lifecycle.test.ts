@@ -1,13 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  __testing,
-  clearActiveEmbeddedRun,
-  setActiveEmbeddedRun,
-} from "./runs.js";
+import { __testing, clearActiveEmbeddedRun, setActiveEmbeddedRun } from "./runs.js";
 
 type RunHandle = Parameters<typeof setActiveEmbeddedRun>[1];
 
-function createRunHandle(overrides: { isCompacting?: boolean; abort?: () => void } = {}): RunHandle {
+function createRunHandle(
+  overrides: { isCompacting?: boolean; abort?: () => void } = {},
+): RunHandle {
   const abort = overrides.abort ?? (() => {});
   return {
     queueMessage: async () => {},
