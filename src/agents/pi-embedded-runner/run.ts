@@ -890,13 +890,18 @@ export async function runEmbeddedPiAgent(
       // queueHandle.abort is stable but calls the CURRENT controller's abort.
       // After each retry, we swap the controller so the next iteration gets a fresh signal.
       let currentAbortController = new AbortController();
+      // Tracks the current attempt's queueHandle so outer handle methods can delegate.
+      // Updated after each attempt returns with that attempt's real handle.
+      let currentAttemptHandle: EmbeddedPiQueueHandle | undefined;
       const queueHandle: EmbeddedPiQueueHandle = {
-        queueMessage: async (_text: string) => {
-          // Queue steering is handled by the attempt's activeSession.
-          // This is a no-op for the stable outer queueHandle.
+        queueMessage: async (text: string) => {
+          // Forward to the current attempt if one is running; otherwise a no-op.
+          if (currentAttemptHandle) {
+            await currentAttemptHandle.queueMessage(text);
+          }
         },
-        isStreaming: () => false,
-        isCompacting: () => false,
+        isStreaming: () => currentAttemptHandle?.isStreaming() ?? false,
+        isCompacting: () => currentAttemptHandle?.isCompacting() ?? false,
         abort: () => {
           // Abort whatever the current in-flight attempt is doing.
           // If no attempt is in flight, this is a no-op.
@@ -1054,6 +1059,9 @@ export async function runEmbeddedPiAgent(
             sessionIdUsed,
             lastAssistant,
           } = attempt;
+
+          // Store the attempt's queueHandle so outer handle methods can delegate to it.
+          currentAttemptHandle = attempt.queueHandle;
 
           // Swap to a fresh abort controller for the next retry iteration.
           // This ensures each retry starts with an un-aborted signal.

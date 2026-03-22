@@ -79,4 +79,9 @@ export type EmbeddedRunAttemptResult = {
   clientToolCall?: { name: string; params: Record<string, unknown> };
   /** True when sessions_yield tool was called during this attempt. */
   yieldDetected?: boolean;
+  /**
+   * The attempt's active queueHandle. Stored so the outer run can forward
+   * queueMessage / isStreaming / isCompacting calls to the current attempt.
+   */
+  queueHandle?: EmbeddedPiQueueHandle;
 };

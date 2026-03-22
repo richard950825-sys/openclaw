@@ -2923,6 +2923,9 @@ export async function runEmbeddedAttempt(
         // Client tool call detected (OpenResponses hosted tools)
         clientToolCall: clientToolCallDetected ?? undefined,
         yieldDetected: yieldDetected || undefined,
+        // Pass the attempt's queueHandle back to the outer run so it can
+        // forward queueMessage/isStreaming/isCompacting to the current attempt.
+        queueHandle,
       };
     } finally {
       // Always tear down the session (and release the lock) before we leave this attempt.
