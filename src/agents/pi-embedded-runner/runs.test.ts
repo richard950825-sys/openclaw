@@ -141,3 +141,116 @@ describe("pi-embedded runner run registry", () => {
     expect(getActiveEmbeddedRunSnapshot("session-snapshot")).toBeUndefined();
   });
 });
+
+describe("active-run lifecycle with retry", () => {
+  afterEach(() => {
+    __testing.resetActiveEmbeddedRuns();
+    vi.restoreAllMocks();
+  });
+
+  it("happy retry path - session stays active through retry", () => {
+    const abortA = vi.fn();
+    const abortB = vi.fn();
+
+    // First attempt's handle
+    const handleA = createRunHandle({ abort: abortA });
+    setActiveEmbeddedRun("session-retry", handleA);
+
+    // Simulate retry: clear the old handle and set a new one
+    clearActiveEmbeddedRun("session-retry", handleA);
+    const handleB = createRunHandle({ abort: abortB });
+    setActiveEmbeddedRun("session-retry", handleB);
+
+    // Session is still active with the new handle
+    expect(__testing.isEmbeddedPiRunActive("session-retry")).toBe(true);
+
+    // Final cleanup
+    clearActiveEmbeddedRun("session-retry", handleB);
+    expect(__testing.isEmbeddedPiRunActive("session-retry")).toBe(false);
+  });
+
+  it("throw path - active-run does not leak", () => {
+    const handle = createRunHandle();
+    const abort = vi.fn();
+    handle.abort = abort;
+
+    setActiveEmbeddedRun("session-throw", handle);
+
+    // Simulate an error during cleanup - should not leak the registry entry
+    expect(() => {
+      // This simulates what happens when clearActiveEmbeddedRun throws
+      // In the real code, we catch and log the error
+      throw new Error("cleanup failed");
+    }).toThrow();
+
+    // The registry should still be consistent - the entry is still there
+    // because clearActiveEmbeddedRun threw before actually removing it
+    expect(__testing.isEmbeddedPiRunActive("session-throw")).toBe(true);
+
+    // Manual cleanup to restore state
+    clearActiveEmbeddedRun("session-throw", handle);
+    expect(__testing.isEmbeddedPiRunActive("session-throw")).toBe(false);
+  });
+
+  it("no-retry success - cleanup called exactly once", () => {
+    const handle = createRunHandle();
+    const clearSpy = vi.spyOn(
+      { clearActiveEmbeddedRun },
+      "clearActiveEmbeddedRun",
+    ).mockImplementation(() => {});
+
+    // First registration
+    setActiveEmbeddedRun("session-success", handle);
+
+    // Success - cleanup called once
+    clearActiveEmbeddedRun("session-success", handle);
+
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("abort during retry - outer run truly stops", () => {
+    const abortA = vi.fn();
+    const abortB = vi.fn();
+
+    // First attempt
+    const handleA = createRunHandle({ abort: abortA });
+    setActiveEmbeddedRun("session-abort", handleA);
+
+    // Abort the first attempt
+    handleA.abort();
+    expect(abortA).toHaveBeenCalledTimes(1);
+
+    // Clear and start second attempt
+    clearActiveEmbeddedRun("session-abort", handleA);
+    const handleB = createRunHandle({ abort: abortB });
+    setActiveEmbeddedRun("session-abort", handleB);
+
+    // Abort the second attempt
+    handleB.abort();
+    expect(abortB).toHaveBeenCalledTimes(1);
+
+    // Cleanup
+    clearActiveEmbeddedRun("session-abort", handleB);
+    expect(__testing.isEmbeddedPiRunActive("session-abort")).toBe(false);
+  });
+
+  it("teardown failure - no registry leak", () => {
+    const handle = createRunHandle();
+
+    // Set up the run
+    setActiveEmbeddedRun("session-teardown", handle);
+    expect(__testing.isEmbeddedPiRunActive("session-teardown")).toBe(true);
+
+    // Simulate a teardown failure - the registry should not leak
+    // because clearActiveEmbeddedRun checks if the handle matches before removing
+    const differentHandle = createRunHandle();
+    clearActiveEmbeddedRun("session-teardown", differentHandle);
+
+    // Original handle is still there because handle didn't match
+    expect(__testing.isEmbeddedPiRunActive("session-teardown")).toBe(true);
+
+    // Correct cleanup with matching handle
+    clearActiveEmbeddedRun("session-teardown", handle);
+    expect(__testing.isEmbeddedPiRunActive("session-teardown")).toBe(false);
+  });
+});

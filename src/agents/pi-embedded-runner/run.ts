@@ -74,6 +74,11 @@ import { createFailoverDecisionLogger } from "./run/failover-observation.js";
 import type { RunEmbeddedPiAgentParams } from "./run/params.js";
 import { buildEmbeddedRunPayloads } from "./run/payloads.js";
 import {
+  clearActiveEmbeddedRun,
+  setActiveEmbeddedRun,
+  type EmbeddedPiQueueHandle,
+} from "./runs.js";
+import {
   truncateOversizedToolResultsInSession,
   sessionLikelyHasOversizedToolResults,
 } from "./tool-result-truncation.js";
@@ -827,8 +832,6 @@ export async function runEmbeddedPiAgent(
       let autoCompactionCount = 0;
       let runLoopIterations = 0;
       let overloadFailoverAttempts = 0;
-      // Track deferred active-run cleanup for finally block
-      let currentDeferredCleanup: (() => void) | undefined;
       const maybeMarkAuthProfileFailure = async (failure: {
         profileId?: string;
         reason?: AuthProfileFailureReason | null;
@@ -882,6 +885,40 @@ export async function runEmbeddedPiAgent(
       // repeated initialization/connection overhead per attempt.
       ensureContextEnginesInitialized();
       const contextEngine = await resolveContextEngine(params.config);
+
+      // Stable queueHandle + abort controller for the outer run lifecycle.
+      // queueHandle.abort is stable but calls the CURRENT controller's abort.
+      // After each retry, we swap the controller so the next iteration gets a fresh signal.
+      let currentAbortController = new AbortController();
+      const queueHandle: EmbeddedPiQueueHandle = {
+        queueMessage: async (_text: string) => {
+          // Queue steering is handled by the attempt's activeSession.
+          // This is a no-op for the stable outer queueHandle.
+        },
+        isStreaming: () => false,
+        isCompacting: () => false,
+        abort: () => {
+          // Abort whatever the current in-flight attempt is doing.
+          // If no attempt is in flight, this is a no-op.
+          currentAbortController.abort();
+        },
+      };
+      // Register once before the loop; the same queueHandle is reused across retries.
+      setActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
+
+      // Outer abort listener: route through stable queueHandle so aborts
+      // target the current in-flight attempt's controller.
+      const outerAbortHandler = () => {
+        queueHandle.abort();
+      };
+      if (params.abortSignal) {
+        if (params.abortSignal.aborted) {
+          outerAbortHandler();
+        } else {
+          params.abortSignal.addEventListener("abort", outerAbortHandler);
+        }
+      }
+
       try {
         let authRetryPending = false;
         // Hoisted so the retry-limit error path can use the most recent API total.
@@ -984,8 +1021,9 @@ export async function runEmbeddedPiAgent(
             // Retry/failover classification happens after the attempt returns.
             // Keep the run registered until this outer loop decides whether
             // to continue, so transient retry windows do not look idle.
+            queueHandle,
             deferActiveRunCleanup: true,
-            abortSignal: params.abortSignal,
+            abortSignal: currentAbortController.signal,
             shouldEmitToolResult: params.shouldEmitToolResult,
             shouldEmitToolOutput: params.shouldEmitToolOutput,
             onPartialReply: params.onPartialReply,
@@ -1008,10 +1046,6 @@ export async function runEmbeddedPiAgent(
               bootstrapPromptWarningSignaturesSeen[bootstrapPromptWarningSignaturesSeen.length - 1],
           });
 
-          // Hold deferred cleanup until the outer lifecycle ends so retries and
-          // backoff windows still count as an active run.
-          currentDeferredCleanup = attempt.clearDeferredActiveRun;
-
           const {
             aborted,
             promptError,
@@ -1020,6 +1054,11 @@ export async function runEmbeddedPiAgent(
             sessionIdUsed,
             lastAssistant,
           } = attempt;
+
+          // Swap to a fresh abort controller for the next retry iteration.
+          // This ensures each retry starts with an un-aborted signal.
+          currentAbortController = new AbortController();
+
           bootstrapPromptWarningSignaturesSeen =
             attempt.bootstrapPromptWarningSignaturesSeen ??
             (attempt.bootstrapPromptWarningSignature
@@ -1708,10 +1747,17 @@ export async function runEmbeddedPiAgent(
           };
         }
       } finally {
-        // Ensure deferred active-run cleanup happens even on unexpected throws
-        if (currentDeferredCleanup) {
-          currentDeferredCleanup();
+        // Outer finally: always clean up the stable queueHandle. This is the
+        // single guaranteed cleanup point regardless of retry/backoff outcome.
+        try {
+          clearActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
+        } catch (err) {
+          log.warn(
+            `outer clearActiveEmbeddedRun failed: runId=${params.runId} sessionId=${params.sessionId} err=${String(err)}`,
+          );
         }
+        // Remove outer abort listener to prevent leaks.
+        params.abortSignal?.removeEventListener?.("abort", outerAbortHandler);
         await contextEngine.dispose?.();
         stopRuntimeAuthRefreshTimer();
         process.chdir(prevCwd);

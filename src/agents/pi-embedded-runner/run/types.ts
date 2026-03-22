@@ -4,6 +4,7 @@ import type { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type { ThinkLevel } from "../../../auto-reply/thinking.js";
 import type { SessionSystemPromptReport } from "../../../config/sessions/types.js";
 import type { ContextEngine } from "../../../context-engine/types.js";
+import type { EmbeddedPiQueueHandle } from "../runs.js";
 import type { PluginHookBeforeAgentStartResult } from "../../../plugins/types.js";
 import type { MessagingToolSend } from "../../pi-embedded-messaging.js";
 import type { NormalizedUsage } from "../../usage.js";
@@ -30,6 +31,12 @@ export type EmbeddedRunAttemptParams = EmbeddedRunAttemptBase & {
   modelRegistry: ModelRegistry;
   thinkLevel: ThinkLevel;
   legacyBeforeAgentStartResult?: PluginHookBeforeAgentStartResult;
+  /**
+   * Stable queue handle created by the outer run loop. When provided, the
+   * attempt uses it instead of creating its own, and the outer run is
+   * responsible for setActiveEmbeddedRun / clearActiveEmbeddedRun.
+   */
+  queueHandle?: EmbeddedPiQueueHandle;
   /**
    * Keep the active-run registry entry alive until the caller explicitly
    * clears it. Used when retry/failover pacing happens after the attempt
@@ -72,6 +79,4 @@ export type EmbeddedRunAttemptResult = {
   clientToolCall?: { name: string; params: Record<string, unknown> };
   /** True when sessions_yield tool was called during this attempt. */
   yieldDetected?: boolean;
-  /** Explicit cleanup hook when active-run cleanup was deferred. */
-  clearDeferredActiveRun?: () => void;
 };
