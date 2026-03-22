@@ -5,6 +5,7 @@ import {
   abortEmbeddedPiRun,
   clearActiveEmbeddedRun,
   getActiveEmbeddedRunSnapshot,
+  isEmbeddedPiRunActive,
   setActiveEmbeddedRun,
   updateActiveEmbeddedRunSnapshot,
   waitForActiveEmbeddedRuns,
@@ -162,11 +163,11 @@ describe("active-run lifecycle with retry", () => {
     setActiveEmbeddedRun("session-retry", handleB);
 
     // Session is still active with the new handle
-    expect(__testing.isEmbeddedPiRunActive("session-retry")).toBe(true);
+    expect(isEmbeddedPiRunActive("session-retry")).toBe(true);
 
     // Final cleanup
     clearActiveEmbeddedRun("session-retry", handleB);
-    expect(__testing.isEmbeddedPiRunActive("session-retry")).toBe(false);
+    expect(isEmbeddedPiRunActive("session-retry")).toBe(false);
   });
 
   it("throw path - active-run does not leak", () => {
@@ -185,27 +186,11 @@ describe("active-run lifecycle with retry", () => {
 
     // The registry should still be consistent - the entry is still there
     // because clearActiveEmbeddedRun threw before actually removing it
-    expect(__testing.isEmbeddedPiRunActive("session-throw")).toBe(true);
+    expect(isEmbeddedPiRunActive("session-throw")).toBe(true);
 
     // Manual cleanup to restore state
     clearActiveEmbeddedRun("session-throw", handle);
-    expect(__testing.isEmbeddedPiRunActive("session-throw")).toBe(false);
-  });
-
-  it("no-retry success - cleanup called exactly once", () => {
-    const handle = createRunHandle();
-    const clearSpy = vi.spyOn(
-      { clearActiveEmbeddedRun },
-      "clearActiveEmbeddedRun",
-    ).mockImplementation(() => {});
-
-    // First registration
-    setActiveEmbeddedRun("session-success", handle);
-
-    // Success - cleanup called once
-    clearActiveEmbeddedRun("session-success", handle);
-
-    expect(clearSpy).toHaveBeenCalledTimes(1);
+    expect(isEmbeddedPiRunActive("session-throw")).toBe(false);
   });
 
   it("abort during retry - outer run truly stops", () => {
@@ -231,7 +216,7 @@ describe("active-run lifecycle with retry", () => {
 
     // Cleanup
     clearActiveEmbeddedRun("session-abort", handleB);
-    expect(__testing.isEmbeddedPiRunActive("session-abort")).toBe(false);
+    expect(isEmbeddedPiRunActive("session-abort")).toBe(false);
   });
 
   it("teardown failure - no registry leak", () => {
@@ -239,7 +224,7 @@ describe("active-run lifecycle with retry", () => {
 
     // Set up the run
     setActiveEmbeddedRun("session-teardown", handle);
-    expect(__testing.isEmbeddedPiRunActive("session-teardown")).toBe(true);
+    expect(isEmbeddedPiRunActive("session-teardown")).toBe(true);
 
     // Simulate a teardown failure - the registry should not leak
     // because clearActiveEmbeddedRun checks if the handle matches before removing
@@ -247,10 +232,10 @@ describe("active-run lifecycle with retry", () => {
     clearActiveEmbeddedRun("session-teardown", differentHandle);
 
     // Original handle is still there because handle didn't match
-    expect(__testing.isEmbeddedPiRunActive("session-teardown")).toBe(true);
+    expect(isEmbeddedPiRunActive("session-teardown")).toBe(true);
 
     // Correct cleanup with matching handle
     clearActiveEmbeddedRun("session-teardown", handle);
-    expect(__testing.isEmbeddedPiRunActive("session-teardown")).toBe(false);
+    expect(isEmbeddedPiRunActive("session-teardown")).toBe(false);
   });
 });

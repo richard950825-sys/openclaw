@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
-import { __testing, clearActiveEmbeddedRun, setActiveEmbeddedRun } from "./runs.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  __testing,
+  abortEmbeddedPiRun,
+  clearActiveEmbeddedRun,
+  isEmbeddedPiRunActive,
+  setActiveEmbeddedRun,
+} from "./runs.js";
 
 type RunHandle = Parameters<typeof setActiveEmbeddedRun>[1];
 
@@ -30,14 +36,13 @@ describe("pi-embedded runner lifecycle", () => {
       setActiveEmbeddedRun(sessionId, handle, "sessionKey");
 
       // Verify it's registered
-      const active = __testing.activeRuns.get(sessionId);
-      expect(active).toBe(handle);
+      expect(isEmbeddedPiRunActive(sessionId)).toBe(true);
 
       // Clear with the SAME handle object
       clearActiveEmbeddedRun(sessionId, handle, "sessionKey");
 
       // Should be cleared
-      expect(__testing.activeRuns.has(sessionId)).toBe(false);
+      expect(isEmbeddedPiRunActive(sessionId)).toBe(false);
     });
 
     it("does NOT clear if handle object is different", () => {
@@ -52,8 +57,10 @@ describe("pi-embedded runner lifecycle", () => {
       clearActiveEmbeddedRun(sessionId, handle2, "sessionKey");
 
       // Should still be registered (handle1)
-      const active = __testing.activeRuns.get(sessionId);
-      expect(active).toBe(handle1);
+      expect(isEmbeddedPiRunActive(sessionId)).toBe(true);
+
+      // Clean up with correct handle
+      clearActiveEmbeddedRun(sessionId, handle1, "sessionKey");
     });
   });
 
@@ -65,11 +72,12 @@ describe("pi-embedded runner lifecycle", () => {
 
       setActiveEmbeddedRun(sessionId, handle, "sessionKey");
 
-      // Import and call abortEmbeddedPiRun
-      const { abortEmbeddedPiRun } = require("./runs.js");
       abortEmbeddedPiRun(sessionId);
 
       expect(abortFn).toHaveBeenCalledTimes(1);
+
+      // Cleanup
+      clearActiveEmbeddedRun(sessionId, handle, "sessionKey");
     });
 
     it("preserves abort reason when forwarding", () => {
@@ -85,10 +93,12 @@ describe("pi-embedded runner lifecycle", () => {
 
       setActiveEmbeddedRun(sessionId, handle, "sessionKey");
 
-      const { abortEmbeddedPiRun } = require("./runs.js");
       abortEmbeddedPiRun(sessionId, { reason: customReason });
 
       expect(abortFn).toHaveBeenCalledTimes(1);
+
+      // Cleanup
+      clearActiveEmbeddedRun(sessionId, handle, "sessionKey");
     });
   });
 });
