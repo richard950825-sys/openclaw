@@ -906,14 +906,19 @@ export async function runEmbeddedPiAgent(
         },
         isStreaming: () => attemptRef.current?.queueHandle?.isStreaming() ?? false,
         isCompacting: () => attemptRef.current?.queueHandle?.isCompacting() ?? false,
-        abort: () => {
+        abort: (isTimeout?: boolean, reason?: unknown) => {
           // Forward to the attempt's real abortRun if available (has full semantics:
           // sets aborted/timedOut, cancels compaction, aborts activeSession).
-          // Falls back to currentAbortController.abort() before the attempt writes its abortRun.
-          if (attemptRef.current?.abortRun) {
-            attemptRef.current.abortRun();
+          // Also write to abortedState so the attempt can read the reason.
+          if (attemptRef.current) {
+            attemptRef.current.abortedState = {
+              aborted: true,
+              timedOut: isTimeout ?? false,
+              reason: reason ?? (isTimeout ? new Error("request timed out", { cause: { name: "TimeoutError" } }) : undefined),
+            };
+            attemptRef.current.abortRun(isTimeout, reason);
           } else {
-            currentAbortController.abort();
+            currentAbortController.abort(reason ?? (isTimeout ? new Error("request timed out") : undefined));
           }
         },
       };
@@ -921,12 +926,22 @@ export async function runEmbeddedPiAgent(
       setActiveEmbeddedRun(params.sessionId, queueHandle, params.sessionKey);
 
       // Outer abort listener: route through the attempt's abortRun so aborts
-      // immediately stop the in-flight attempt.
+      // immediately stop the in-flight attempt. Also forward the abort reason
+      // (especially important for timeout reasons).
       const outerAbortHandler = () => {
-        if (attemptRef.current?.abortRun) {
-          attemptRef.current.abortRun();
+        // Extract reason from the abort signal
+        const reason = "reason" in params.abortSignal ? (params.abortSignal as { reason?: unknown }).reason : undefined;
+        // Check if this looks like a timeout (has TimeoutError name or message)
+        const isTimeout = reason instanceof Error && (reason.name === "TimeoutError" || reason.message.includes("timed out"));
+        if (attemptRef.current) {
+          attemptRef.current.abortedState = {
+            aborted: true,
+            timedOut: isTimeout,
+            reason,
+          };
+          attemptRef.current.abortRun(isTimeout, reason);
         } else {
-          currentAbortController.abort();
+          currentAbortController.abort(reason);
         }
       };
       if (params.abortSignal) {

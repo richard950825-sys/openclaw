@@ -1415,6 +1415,16 @@ export async function runEmbeddedAttempt(
     params.attemptRef.current = {
       queueHandle: queueHandlePlaceholder,
       abortRun: (isTimeout?: boolean, reason?: unknown) => {
+        // Write to abortedState BEFORE aborting, so the state is preserved
+        // even if the abort happens during the startup/bootstrap window
+        // (before aborted/timedOut variables are initialized).
+        if (params.attemptRef?.current) {
+          params.attemptRef.current.abortedState = {
+            aborted: true,
+            timedOut: isTimeout ?? false,
+            reason: reason ?? (isTimeout ? makeTimeoutAbortReason() : undefined),
+          };
+        }
         runAbortController.abort(reason ?? (isTimeout ? makeTimeoutAbortReason() : undefined));
       },
     };
@@ -2220,9 +2230,12 @@ export async function runEmbeddedAttempt(
         throw err;
       }
 
-      let aborted = Boolean(params.abortSignal?.aborted);
+      // Check abortedState first (written by placeholder abort during startup window)
+      // before falling back to params.abortSignal.
+      const initialAbortedState = params.attemptRef?.current?.abortedState;
+      let aborted = initialAbortedState?.aborted ?? Boolean(params.abortSignal?.aborted);
       let yieldAborted = false;
-      let timedOut = false;
+      let timedOut = initialAbortedState?.timedOut ?? false;
       let timedOutDuringCompaction = false;
       const getAbortReason = (signal: AbortSignal): unknown =>
         "reason" in signal ? (signal as { reason?: unknown }).reason : undefined;
@@ -2255,6 +2268,14 @@ export async function runEmbeddedAttempt(
         aborted = true;
         if (isTimeout) {
           timedOut = true;
+        }
+        // Also write to abortedState so outer can read it (for canceled path detection)
+        if (params.attemptRef?.current) {
+          params.attemptRef.current.abortedState = {
+            aborted: true,
+            timedOut,
+            reason: reason ?? (isTimeout ? makeTimeoutAbortReason() : undefined),
+          };
         }
         if (isTimeout) {
           runAbortController.abort(reason ?? makeTimeoutAbortReason());

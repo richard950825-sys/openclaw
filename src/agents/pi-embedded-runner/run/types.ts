@@ -19,6 +19,17 @@ export type MutableAttemptRef = {
     queueHandle: EmbeddedPiQueueHandle;
     /** The attempt's abortRun function for immediate abort forwarding. */
     abortRun: (isTimeout?: boolean, reason?: unknown) => void;
+    /**
+     * Mutable container for abort state that can be written by placeholder abort
+     * BEFORE the real aborted/timedOut variables are initialized.
+     * This ensures early aborts (during startup/bootstrap window) preserve the
+     * aborted/timedOut state and don't fall through to the wrong error path.
+     */
+    abortedState?: {
+      aborted: boolean;
+      timedOut: boolean;
+      reason?: unknown;
+    };
   };
 };
 import type { PluginHookBeforeAgentStartResult } from "../../../plugins/types.js";
