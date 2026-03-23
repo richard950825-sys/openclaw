@@ -994,7 +994,7 @@ describe("buildStatusMessage", () => {
     );
   });
 
- it("reports modelProvider+model from channels.modelByChannel instead of agent defaults", () => {
+  it("reports modelProvider+model from channels.modelByChannel instead of agent defaults", () => {
     // When channels.modelByChannel routes a session to a non-default model,
     // sessionEntry.modelProvider and sessionEntry.model are set but
     // providerOverride and modelOverride are not. buildStatusMessage must

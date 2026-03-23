@@ -449,14 +449,14 @@ export function buildStatusMessage(args: StatusArgs): string {
   // For non-fallback sessions, entry.model !== fallbackNoticeActiveModel so we fall through
   // to entry.model (runtime model).
   const selectedModel =
-    entry?.modelOverride
-    ?? (entry?.model !== undefined &&
-        entry?.fallbackNoticeActiveModel !== undefined &&
-        entry?.model === entry?.fallbackNoticeActiveModel
-        ? entry?.fallbackNoticeSelectedModel
-        : entry?.model)
-    ?? resolved.model
-    ?? DEFAULT_MODEL;
+    entry?.modelOverride ??
+    (entry?.model !== undefined &&
+    entry?.fallbackNoticeActiveModel !== undefined &&
+    entry?.model === entry?.fallbackNoticeActiveModel
+      ? entry?.fallbackNoticeSelectedModel
+      : entry?.model) ??
+    resolved.model ??
+    DEFAULT_MODEL;
   const modelRefs = resolveSelectedAndActiveModel({
     selectedProvider,
     selectedModel,
